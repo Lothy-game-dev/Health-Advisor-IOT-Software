@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Health Advisor Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container">
+            <a class="navbar-brand" href="#">IoT Health Advisor</a>
+            <div class="navbar-nav ms-auto">
+                <span class="nav-item nav-link" id="userEmail"></span>
+                <span class="nav-item nav-link" id="requestCounter"></span>
+                <span class="nav-item nav-link" id="userId"></span>
+                <button class="nav-item nav-link btn btn-link" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <!-- API Key Management Card -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Gemini API Key Management</h5>
+                        <div class="alert alert-info">
+                            <strong>Rate Limits:</strong>
+                            <ul>
+                                <li>With your own API key: 15 requests per hour</li>
+                                <li>Using developer's API key: 3 requests per hour</li>
+                            </ul>
+                        </div>
+                        <div id="apiKeyForm">
+                            <div class="mb-3">
+                                <label class="form-label">Your Gemini API Key</label>
+                                <input type="password" class="form-control" id="geminiApiKey" placeholder="Enter your Gemini API key">
+                            </div>
+                            <button onclick="updateApiKey()" class="btn btn-primary">Save API Key</button>
+                            <button onclick="removeApiKey()" class="btn btn-danger">Remove API Key</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sensor Data Card -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Recent Sensor Readings</h5>
+                        <div id="sensorData">Loading sensor data...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        const devFirebaseConfig = {{ dev_firebase_config|tojson }};
+        let firebaseApp = null;
+
+        // Initialize Firebase
+        firebaseApp = firebase.initializeApp(devFirebaseConfig);
+        const db = firebaseApp.firestore();
+        const auth = firebaseApp.auth();
+
+        // Get user from localStorage
+        const user = JSON.parse(localStorage.getItem('user'));
+        console.log('User data from localStorage:', user);
+
+        if (!user || !user.uid) {
+            console.log('No user found, redirecting to login');
+            window.location.href = '/';
+        }
+
+        // Ensure Firebase Auth is initialized with the user
+        auth.onAuthStateChanged((firebaseUser) => {
+            if (firebaseUser) {
+                console.log('Firebase user authenticated:', firebaseUser.uid);
+                loadSensorData();
+                updateRequestCounter();
+            } else {
+                // If not authenticated, sign in with custom token
+                auth.signInWithCustomToken(user.token)
+                    .then(() => {
+                        console.log('Successfully signed in with custom token');
+                        loadSensorData();
+                        updateRequestCounter();
+                    })
+                    .catch((error) => {
+                        console.error('Error signing in:', error);
+                        window.location.href = '/';
+                    });
+            }
+        });
+
+        // Display user info
+        document.getElementById('userEmail').textContent = user.email;
+        document.getElementById('userId').textContent = `ID: ${user.uid}`;
+
+        function loadSensorData() {
+            console.log('Setting up sensor data listener for user:', user.uid);
+            db.collection('sensor_readings')
+                .where('userId', '==', user.uid)
+                .orderBy('timestamp', 'desc')
+                .limit(10)
+                .onSnapshot((snapshot) => {
+                    console.log('Snapshot received:', snapshot.size, 'documents');
+                    const sensorDiv = document.getElementById('sensorData');
+                    
+                    if (snapshot.empty) {
+                        console.log('No sensor data found');
+                        sensorDiv.innerHTML = 'No sensor data available';
+                        return;
+                    }
+
+                    let html = '<div class="list-group">';
+                    
+                    snapshot.forEach((doc) => {
+                        console.log('Processing document:', doc.id);
+                        const data = doc.data();
+                        console.log('Document data:', data);
+                        
+                        const date = new Date(data.timestamp).toLocaleString();
+                        const suggestion = data.suggestion;
+                        
+                        html += `
+                            <div class="list-group-item">
+                                <h6 class="mb-1">Reading from ${date}</h6>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card mb-2">
+                                            <div class="card-body">
+                                                <h6 class="card-title">Sensor Readings</h6>
+                                                <p class="mb-1">
+                                                    Temperature: ${data.temperature}°C<br>
+                                                    Humidity: ${data.humidity}%<br>
+                                                    Noise Level: ${data.noise}dB
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card mb-2">
+                                            <div class="card-body">
+                                                <h6 class="card-title">Optimal Ranges</h6>
+                                                <p class="mb-1">
+                                                    Temperature: ${suggestion.optimal_ranges.temperature}<br>
+                                                    Humidity: ${suggestion.optimal_ranges.humidity}<br>
+                                                    Noise: ${suggestion.optimal_ranges.noise}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="alert alert-info">
+                                    <strong>Summary:</strong><br>
+                                    ${suggestion.summary}
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6>Immediate Actions:</h6>
+                                        <ul>
+                                            ${suggestion.immediate_actions.map(action => `<li>${action}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6>Health Impacts:</h6>
+                                        <ul>
+                                            ${suggestion.health_impacts.map(impact => `<li>${impact}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                </div>
+                                
+                                <small class="text-muted">
+                                    Request ${data.request_number} of ${data.using_custom_key ? '15' : '3'} for this hour
+                                </small>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    sensorDiv.innerHTML = html;
+                }, (error) => {
+                    console.error('Error getting sensor data:', error);
+                    document.getElementById('sensorData').innerHTML = 
+                        `Error loading sensor data: ${error.message}`;
+                });
+        }
+
+        function updateRequestCounter() {
+            console.log('Updating request counter for user:', user.uid);
+            db.collection('users').doc(user.uid)
+                .onSnapshot((doc) => {
+                    console.log('User document update:', doc.exists ? 'exists' : 'does not exist');
+                    if (doc.exists) {
+                        const data = doc.data();
+                        console.log('User data:', data);
+                        const requestsThisHour = data.requests_this_hour || 0;
+                        const limit = data.gemini_api_key ? 15 : 3;
+                        document.getElementById('requestCounter').textContent = 
+                            `Requests this hour: ${requestsThisHour}/${limit}`;
+                    }
+                }, (error) => {
+                    console.error('Error getting user data:', error);
+                });
+        }
+
+        async function updateApiKey() {
+            const apiKey = document.getElementById('geminiApiKey').value;
+            try {
+                const response = await fetch('/api/update_gemini_key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: user.uid,
+                        api_key: apiKey
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert('API key updated successfully!');
+                    updateRequestCounter();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error updating API key: ' + error);
+            }
+        }
+
+        async function removeApiKey() {
+            try {
+                const response = await fetch('/api/remove_gemini_key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: user.uid
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert('API key removed successfully!');
+                    document.getElementById('geminiApiKey').value = '';
+                    updateRequestCounter();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error removing API key: ' + error);
+            }
+        }
+
+        function logout() {
+            auth.signOut().then(() => {
+                localStorage.removeItem('user');
+                window.location.href = '/';
+            });
+        }
+    </script>
+</body>
+</html>

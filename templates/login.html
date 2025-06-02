@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Health Advisor - Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">IoT Health Advisor</h3>
+                        
+                        <ul class="nav nav-tabs mb-4" id="loginTabs">
+                            <li class="nav-item">
+                                <a class="nav-link active" data-bs-toggle="tab" href="#devAccount">Use Developer Account</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" data-bs-toggle="tab" href="#ownAccount">Use Own Account</a>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content">
+                            <!-- Developer Account Tab -->
+                            <div class="tab-pane fade show active" id="devAccount">
+                                <div class="alert alert-info">
+                                    <strong>Developer Account Limitations:</strong>
+                                    <ul>
+                                        <li>Limited to 10 data updates per day</li>
+                                        <li>Data is stored in shared database</li>
+                                        <li>No additional setup required</li>
+                                    </ul>
+                                </div>
+                                <button id="devSignIn" class="btn btn-primary">
+                                    <img src="https://www.google.com/favicon.ico" alt="Google" width="20" height="20" class="me-2">
+                                    Sign in with Google (Developer Account)
+                                </button>
+                            </div>
+
+                            <!-- Own Account Tab -->
+                            <div class="tab-pane fade" id="ownAccount">
+                                <div class="alert alert-info">
+                                    <h5>Setup Your Own Firebase Project:</h5>
+                                    <ol>
+                                        <li>Go to <a href="https://console.firebase.google.com" target="_blank">Firebase Console</a></li>
+                                        <li>Create a new project</li>
+                                        <li>Enable Google Authentication</li>
+                                        <li>Create a Web App and copy configuration</li>
+                                    </ol>
+                                </div>
+
+                                <form id="configForm" class="mt-4">
+                                    <div class="mb-3">
+                                        <label class="form-label">Your Firebase Configuration</label>
+                                        <textarea class="form-control" id="firebaseConfig" rows="8" placeholder='{
+  "apiKey": "your-api-key",
+  "authDomain": "your-project.firebaseapp.com",
+  "projectId": "your-project-id",
+  "storageBucket": "your-project.appspot.com",
+  "messagingSenderId": "your-sender-id",
+  "appId": "your-app-id"
+}'></textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">Save Configuration & Sign In</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap and Firebase SDKs -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        // Developer's Firebase config from Flask
+        const devFirebaseConfig = {{ dev_firebase_config|tojson }};
+        let firebaseApp = null;
+    
+        // Initialize Developer Firebase
+        document.getElementById('devSignIn').addEventListener('click', async function() {
+            try {
+                if (!firebaseApp) {
+                    firebaseApp = firebase.initializeApp(devFirebaseConfig);
+                    console.log('Firebase initialized successfully');
+                }
+    
+                const provider = new firebase.auth.GoogleAuthProvider();
+                const result = await firebaseApp.auth().signInWithPopup(provider);
+                console.log('Sign in successful:', result);
+    
+                // Get the ID token
+                const idToken = await result.user.getIdToken();
+    
+                // Create or update user document in Firestore
+                const db = firebaseApp.firestore();
+                await db.collection('users').doc(result.user.uid).set({
+                    email: result.user.email,
+                    displayName: result.user.displayName,
+                    using_dev_account: true,
+                    requests_this_hour: 0,
+                    last_request_hour: null,
+                    created_at: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+    
+                // Store user info including the token
+                const userData = {
+                    uid: result.user.uid,
+                    email: result.user.email,
+                    displayName: result.user.displayName,
+                    usingDevAccount: true,
+                    token: idToken  // Store the token
+                };
+                
+                localStorage.setItem('user', JSON.stringify(userData));
+                window.location.href = '/dashboard';
+    
+            } catch (error) {
+                console.error('Error during sign in:', error);
+                alert('Error during sign in: ' + error.message);
+            }
+        });
+
+        // Handle own configuration form submission
+        document.getElementById('configForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            try {
+                const config = JSON.parse(document.getElementById('firebaseConfig').value);
+                localStorage.setItem('firebaseConfig', JSON.stringify(config));
+                
+                if (!firebaseApp) {
+                    firebaseApp = firebase.initializeApp(config);
+                }
+
+                const provider = new firebase.auth.GoogleAuthProvider();
+                const result = await firebaseApp.auth().signInWithPopup(provider);
+
+                // Create or update user document in Firestore
+                const db = firebase.firestore();
+                await db.collection('users').doc(result.user.uid).set({
+                    email: result.user.email,
+                    displayName: result.user.displayName,
+                    using_dev_account: false,
+                    requests_this_hour: 0,
+                    last_request_hour: null,
+                    created_at: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                const userData = {
+                    uid: result.user.uid,
+                    email: result.user.email,
+                    displayName: result.user.displayName,
+                    usingDevAccount: false
+                };
+                
+                localStorage.setItem('user', JSON.stringify(userData));
+                window.location.href = '/dashboard';
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html>
