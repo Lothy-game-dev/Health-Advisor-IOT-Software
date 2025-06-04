@@ -1,18 +1,30 @@
+import atexit
 from flask import Flask, jsonify, render_template, url_for, redirect, session, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from authlib.integrations.flask_client import OAuth
-from dotenv import load_dotenv
 import os
 from datetime import datetime
 
 from services.firebase_service import FirebaseService
 from services.gemini_service import GeminiService
+from services.sensor_service import SensorService
 
 if os.getenv("ENVIRONMENT") != "production":
     from dotenv import load_dotenv
 
     load_dotenv()
+
+sensor_service = None
+if os.environ.get("DEVICE_TYPE") == "raspberry_pi":
+    try:
+        sensor_service = SensorService()
+        # Đảm bảo cleanup GPIO khi thoát
+        atexit.register(sensor_service.cleanup)
+        print("Sensor service initialized on Raspberry Pi")
+    except Exception as e:
+        print(f"Error initializing sensor service: {e}")
+        print("Running without sensor hardware support")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
@@ -196,6 +208,10 @@ def receive_sensor_data():
             data["temperature"], data["humidity"], data["noise"]
         )
 
+        # Kiểm tra nếu chỉ cần lấy khuyến nghị
+        if data.get("get_recommendation_only"):
+            return jsonify({"success": True, "suggestion": suggestion_data})
+
         # Current timestamp
         current_time = datetime.now().isoformat()
 
@@ -265,6 +281,42 @@ def remove_gemini_key():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/read_sensors", methods=["GET"])
+def read_sensors():
+    """Endpoint to read sensor data directly from connected sensors"""
+    try:
+        if not sensor_service:
+            return (
+                jsonify(
+                    {
+                        "error": "Sensor hardware not available",
+                        "message": "This endpoint only works on Raspberry Pi with sensors connected",
+                    }
+                ),
+                400,
+            )
+
+        # Đọc dữ liệu từ cảm biến
+        sensor_data = sensor_service.read_all_sensors()
+
+        # Thêm timestamp
+        sensor_data["timestamp"] = datetime.now().isoformat()
+
+        # Tùy chọn: lưu dữ liệu vào Firebase
+        if request.args.get("save") == "true":
+            user_id = request.args.get("user_id")
+            if user_id:
+                # Lưu dữ liệu vào Firebase
+                document_id = firebase_service.save_sensor_reading(user_id, sensor_data)
+                sensor_data["document_id"] = document_id
+
+        return jsonify({"success": True, "data": sensor_data})
+
+    except Exception as e:
+        print(f"Error reading sensors: {e}")
+        return jsonify({"error": str(e), "message": "Failed to read from sensors"}), 500
 
 
 if __name__ == "__main__":
