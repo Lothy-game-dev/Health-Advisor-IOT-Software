@@ -1,26 +1,26 @@
-FROM python:3.10-slim
+FROM python:3.9-slim
 
-# Cài đặt công cụ build cần thiết (để không bị lỗi khi cài đặt một số package)
+# Cài đặt công cụ build và thư viện cần thiết
 RUN apt-get update && apt-get install -y \
     build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Cài đặt các dependencies chung (không bao gồm các thư viện Raspberry Pi)
-COPY requirements-common.txt .
-RUN pip install --no-cache-dir -r requirements-common.txt
-
-# Sao chép mã nguồn
+# Sao chép tất cả mã nguồn
 COPY . .
+
+# Cài đặt dependencies bao gồm cả thư viện Raspberry Pi
+RUN pip install --no-cache-dir -r requirements-pi.txt
 
 # Thiết lập biến môi trường
 ENV FLASK_APP=main.py
 ENV FLASK_ENV=production
-ENV DEVICE_TYPE=docker  # Thêm biến này để biết là đang chạy trên Docker
+ENV DEVICE_TYPE=raspberry_pi
 
-# Biến môi trường có thể được ghi đè khi chạy container
+# Biến môi trường khác
 ENV FLASK_SECRET_KEY=""
 ENV GOOGLE_CLIENT_ID=""
 ENV GOOGLE_CLIENT_SECRET=""
