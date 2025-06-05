@@ -13,7 +13,7 @@ WORKDIR /app
 COPY . .
 
 # Cài đặt dependencies bao gồm cả thư viện Raspberry Pi
-RUN pip install --no-cache-dir -r requirements-pi.txt
+RUN pip install --no-cache-dir -r requirements-pi.txt --install-option="--force-pi"
 
 # Thiết lập biến môi trường
 ENV FLASK_APP=main.py
