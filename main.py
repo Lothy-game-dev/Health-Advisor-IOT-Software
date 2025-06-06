@@ -9,6 +9,7 @@ from datetime import datetime
 from services.firebase_service import FirebaseService
 from services.gemini_service import GeminiService
 from services.sensor_service import SensorService
+from functools import wraps
 
 if os.getenv("ENVIRONMENT") != "production":
     from dotenv import load_dotenv
@@ -52,7 +53,10 @@ google = oauth.register(
     authorize_params=None,
     api_base_url="https://www.googleapis.com/oauth2/v1/",
     userinfo_endpoint="https://openidconnect.googleapis.com/v1/userinfo",
-    client_kwargs={"scope": "openid email profile"},
+    client_kwargs={
+        "scope": "openid email profile",
+        "redirect_uri": "http://localhost:5000/authorize"  # Update this URL based on your deployment
+    },
 )
 
 # Get developer's Firebase config
@@ -125,6 +129,8 @@ def authorize():
     token = google.authorize_access_token()
     resp = google.get("userinfo")
     user_info = resp.json()
+    
+    print(user_info)
 
     # Store user info in session
     session["user"] = {
@@ -144,8 +150,13 @@ def logout():
 
 
 @app.route("/dashboard")
-@login_required
+# @login_required
 def dashboard():
+    user_data = request.args.get('user')
+    if user_data:
+        user_data = json.loads(user_data)
+        session["user"] = user_data
+
     return render_template(
         "dashboard.html",
         dev_firebase_config=dev_firebase_config,

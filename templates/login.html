@@ -119,9 +119,8 @@
                     usingDevAccount: true,
                     token: idToken  // Store the token
                 };
-                
                 localStorage.setItem('user', JSON.stringify(userData));
-                window.location.href = '/dashboard';
+                window.location.href = '/dashboard?user=' + JSON.stringify(userData);
     
             } catch (error) {
                 console.error('Error during sign in:', error);
